@@ -1,0 +1,24 @@
+<!-- wrapper.html -->
+<!DOCTYPE html>
+<html>
+  <head><meta charset="UTF-8"></head>
+  <body style="margin:0;padding:0;">
+    <iframe id="target" width="800px" height="600px" frameborder="0"></iframe>
+
+    <script>
+      const eventId = "6/25883";
+      const params = new URLSearchParams(window.location.search);
+      const board = params.get("board") || "1";
+
+      var eventIdSplit = eventId.split("/");
+
+      const targetUrl = `https://live.3k-darts.com/tv/` + eventIdSplit[0] + `/0/` + eventIdSplit[1] + `/board/` + board;
+      window.location.replace(targetUrl);
+      //document.getElementById("target").src = targetUrl;
+    </script>
+  </body>
+</html>
+
+
+
+
