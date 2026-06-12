@@ -17,7 +17,6 @@ import io
 import pathlib
 import re
 import sys
-import time
 from urllib.parse import urlparse
 
 from flask import Flask, jsonify, render_template_string, request, Response
@@ -40,8 +39,8 @@ app = Flask(__name__)
 obs_config: dict = {
     "host": "localhost",
     "port": 4455,
-    "password": "",
-    "obs2k_url": "file:///Users/leopold/Documents/private/DartApi26/stream/OBS2K.html",
+    "password": "gutzdcev",
+    "obs2k_url": "file:///home/gutz/GutzDcStreamControl/OBS2K.html",
 }
 
 
@@ -66,26 +65,43 @@ def _call(req):
 
 
 def _set_browser_source_url(source_name: str, new_url: str) -> bool:
-    """Set the URL on a browser source and toggle its visibility to force a reload."""
-    ws = _connect()
+    """Set the URL on a browser source."""
     try:
-        ws.call(obsrequests.SetInputSettings(
+        _call(obsrequests.SetInputSettings(
             inputName=source_name,
             inputSettings={"url": new_url},
         ))
-        # Find the source in any scene and toggle it so OBS reloads the page
-        for scene in ws.call(obsrequests.GetSceneList()).getScenes():
-            for item in ws.call(obsrequests.GetSceneItemList(sceneName=scene["sceneName"])).getSceneItems():
-                if item["sourceName"] == source_name:
-                    sid = item["sceneItemId"]
-                    sn  = scene["sceneName"]
-                    ws.call(obsrequests.SetSceneItemEnabled(sceneName=sn, sceneItemId=sid, sceneItemEnabled=False))
-                    time.sleep(0.3)
-                    ws.call(obsrequests.SetSceneItemEnabled(sceneName=sn, sceneItemId=sid, sceneItemEnabled=True))
-                    return True
-        return True  # URL was set even if source isn't placed in a scene
+        return True
     except Exception:
         return False
+
+
+def _reload_all_browser_sources() -> list:
+    """Hide then show every browser_source in every scene to force a reload."""
+    import time
+    ws = _connect()
+    try:
+        scenes = ws.call(obsrequests.GetSceneList()).getScenes()
+        toggled = []
+        for scene in scenes:
+            sn = scene["sceneName"]
+            items = ws.call(obsrequests.GetSceneItemList(sceneName=sn)).getSceneItems()
+            for item in items:
+                if item.get("inputKind") == "browser_source":
+                    sid = item["sceneItemId"]
+                    try:
+                        ws.call(obsrequests.SetSceneItemEnabled(sceneName=sn, sceneItemId=sid, sceneItemEnabled=False))
+                        toggled.append((sn, sid))
+                    except Exception:
+                        pass
+        if toggled:
+            time.sleep(0.3)
+            for sn, sid in toggled:
+                with contextlib.suppress(Exception):
+                    ws.call(obsrequests.SetSceneItemEnabled(sceneName=sn, sceneItemId=sid, sceneItemEnabled=True))
+        return [f"{sn}/{sid}" for sn, sid in toggled]
+    except Exception:
+        return []
     finally:
         with contextlib.suppress(Exception):
             ws.disconnect()
@@ -1046,14 +1062,7 @@ def api_tournament():
             )
         results.append({"source": source_name, "url": url, "ok": ok})
 
-    # Update "Browser Board N" browser sources to OBS2K.html?board=N
-    obs2k_base = obs_config["obs2k_url"].rstrip("?").split("?")[0]
-    for i in range(1, 7):
-        board_url = f"{obs2k_base}?board={i}"
-        ok = _set_browser_source_url(f"Browser Board {i}", board_url)
-        results.append({"source": f"Browser Board {i}", "url": board_url, "ok": ok})
-
-    # Update eventId in OBS2K.html and write it back to disk
+    # Update eventId in OBS2K.html BEFORE reloading browser sources
     html_file = pathlib.Path(__file__).parent / "OBS2K.html"
     html_update_ok = False
     html_update_error = None
@@ -1077,6 +1086,15 @@ def api_tournament():
     except Exception as e:
         html_update_error = str(e)
 
+    # Update "Browser Board N" URLs then reload all browser sources
+    obs2k_base = obs_config["obs2k_url"].rstrip("?").split("?")[0]
+    for i in range(1, 7):
+        board_url = f"{obs2k_base}?board={i}"
+        ok = _set_browser_source_url(f"Browser Board {i}", board_url)
+        results.append({"source": f"Browser Board {i}", "url": board_url, "ok": ok})
+
+    _reload_all_browser_sources()
+
     return jsonify({
         "results": results,
         "db_id": db_id,
@@ -1094,7 +1112,7 @@ def main():
     parser = argparse.ArgumentParser(description="OBS Stream Control Panel")
     parser.add_argument("--obs-host",   default="localhost", help="OBS WebSocket host (default: localhost)")
     parser.add_argument("--obs-port",   type=int, default=4455, help="OBS WebSocket port (default: 4455)")
-    parser.add_argument("--obs-password", default="", help="OBS WebSocket password")
+    parser.add_argument("--obs-password", default="gutzdcev", help="OBS WebSocket password")
     parser.add_argument("--port",       type=int, default=5000, help="Web server port (default: 5000)")
     args = parser.parse_args()
 
